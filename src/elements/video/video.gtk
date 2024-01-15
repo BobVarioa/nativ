@@ -1,0 +1,15 @@
+Box#root {
+	[orientation="vertical", hexpand="True", vexpand="True"]
+
+	Box#videoContainer {
+		[orientation="vertical", hexpand="True", vexpand="True"]
+	}
+
+	Box#controls {
+		[orientation="horizontal", hexpand="True"]
+
+		Button#pause {
+			[label="Pause/Play", label$translatable="True", receives_default="1"]
+		}
+	}
+}

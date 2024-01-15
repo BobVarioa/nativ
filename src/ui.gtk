@@ -1,0 +1,14 @@
+Box#root {
+	[orientation="vertical", hexpand="True", vexpand="True"]
+
+	Box {
+		[orientation="horizontal", hexpand="True"]
+
+		Entry#searchForm {}
+
+		Button#confirmVideo {
+			[label="Search", label$translatable="True", receives_default="1"]
+		}
+	}
+
+}
