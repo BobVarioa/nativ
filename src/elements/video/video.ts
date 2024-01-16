@@ -1,25 +1,16 @@
+import GLib from "gtk:GLib@2.0";
 import Gst from "gtk:Gst@1.0";
 import Gtk from "gtk:Gtk@3.0";
-import GLib from "gtk:GLib@2.0";
-import video from "video.gtk";
 import EventEmitter from "node:events";
-import { DebounceAsync, DebounceSync } from "../../utils/cache";
-import { error, verbose } from "../../utils/log";
-
-interface Playbin extends Gst.Pipeline {
-	instant_uri: boolean;
-	video_sink: Gst.Element;
-	uri: string;
-}
-
-interface GtkSink extends Gst.Element {
-	widget: Gtk.Widget;
-}
-
-interface GlSinkBin extends Gst.Element {
-	sink: Gst.Element;
-	maxLateness: number;
-}
+import video from "video.gtk";
+import { DebounceAsync, DebounceSync, Throttle } from "../../utils/decorators";
+import {
+	GlSinkBin,
+	GtkSink,
+	Playbin,
+	parseNavigationEvent,
+} from "../../utils/gstreamer";
+import { error, expandObject, verbose } from "../../utils/log";
 
 const GST_PLAY_FLAG_VIDEO = 1 << 0;
 const GST_PLAY_FLAG_AUDIO = 1 << 1;
@@ -36,7 +27,7 @@ export class VideoController {
 		const root = video.getObject("root");
 		const videoContainer = video.getObject("videoContainer");
 		videoContainer.add(this.videoWidget);
-		
+
 		const controls = video.getObject("controls");
 
 		const pauseButton = video.getObject("pause");
@@ -44,23 +35,30 @@ export class VideoController {
 			this.togglePlay();
 		});
 
-		const seekbar = Gtk.Scale.newWithRange(Gtk.Orientation.HORIZONTAL, 0, 100, 0.5)
+		const seekbar = Gtk.Scale.newWithRange(
+			Gtk.Orientation.HORIZONTAL,
+			0,
+			100,
+			0.5
+		);
 		let seekBlocked = false;
-		seekbar.connect("value-changed", ()=> {
+		seekbar.connect("value-changed", () => {
 			if (seekBlocked) {
 				seekBlocked = false;
 				return;
 			}
-			
+
 			let amount = seekbar.getValue();
 			this.seekTo(amount);
-		})
+		});
 		this.events.on("play", () => {
 			GLib.timeoutAdd(GLib.PRIORITY_DEFAULT, 1000, () => {
 				if (this.paused) return false;
+				if (this.desiredPosition) return true;
+
 				const duration = this.getDuration();
 				seekbar.setRange(0, duration / Gst.SECOND);
-				
+
 				try {
 					const position = this.getPosition();
 					seekBlocked = true;
@@ -68,14 +66,16 @@ export class VideoController {
 				} catch (e) {
 					// ignore seek errors, because they can happen for all sorts of reasons
 				}
-	
+
 				return true;
-			})
-		})
-		
+			});
+		});
+
 		controls.packEnd(seekbar, true, true, 2);
 		return root;
 	}
+
+	buffering = false;
 
 	init() {
 		let widget: Gtk.Widget;
@@ -91,13 +91,13 @@ export class VideoController {
 			"glsinkbin"
 		) as GlSinkBin;
 		if (gtkglsink != null && glsink != null) {
-			console.log("glsink")
+			console.log("glsink");
 			glsink.sink = gtkglsink;
 
 			vsink = glsink;
 			widget = gtkglsink.widget;
 		} else {
-			console.log("gtksink")
+			console.log("gtksink");
 			let gtksink = Gst.ElementFactory.make(
 				"gtksink",
 				"gtksink"
@@ -123,10 +123,11 @@ export class VideoController {
 			switch (msg.type) {
 				case Gst.MessageType.ERROR:
 					let [err, m] = msg.parseError();
-					throw new Error(err.message);
+					throw new Error(err.message + "\n" + m);
 
 				case Gst.MessageType.EOS:
 					// end of stream
+					verbose("GStreamer", "EOS");
 					break;
 
 				case Gst.MessageType.TAG:
@@ -137,32 +138,63 @@ export class VideoController {
 					const percent = msg.parseBuffering();
 
 					if (percent == 100) {
-						this.playbin.setState(Gst.State.PLAYING);
+						// this.playbin.setState(Gst.State.PLAYING);
 						this.buffering = false;
-						verbose("GStreamer", "BUFFERING_END")
+						verbose("GStreamer", "BUFFERING_END");
 					} else if (!this.buffering) {
 						this.buffering = true;
-						this.playbin.setState(Gst.State.PAUSED);
-						verbose("GStreamer", "BUFFERING_START")
+						// this.playbin.setState(Gst.State.PAUSED);
+						verbose("GStreamer", "BUFFERING_START");
 					}
 					break;
 
 				case Gst.MessageType.LATENCY:
 					this.playbin.recalculateLatency();
-					verbose("GStreamer", "LATENCY")
+					verbose("GStreamer", "LATENCY");
 					break;
 
 				case Gst.MessageType.QOS:
-					let [format, dropped, processed] = msg.parseQosStats(); 
-					verbose("GStreamer", `${Gst.Format[format]}: dropped ${dropped}, processed ${processed}`)
+					let [format, dropped, processed] = msg.parseQosStats();
+					verbose(
+						"GStreamer",
+						`${Gst.Format[format]}: dropped ${dropped}, processed ${processed}`
+					);
 					break;
 
-				case Gst.MessageType.ELEMENT:
+				case Gst.MessageType.ELEMENT: {
+					const structure = msg.getStructure();
+
+					const name = structure.getName();
+					switch (name) {
+						case "GstNavigationMessage":
+							let nav = parseNavigationEvent(structure);
+							if (nav.type == "mouse-move") break;
+							verbose(
+								"GStreamer",
+								`GstNavigationMessage (${expandObject(nav)})`
+							);
+
+							if (nav.type == "mouse-button-press" && nav.button == 1) {
+								this.togglePlay()
+							}
+							break;
+
+						default:
+							verbose(
+								"GStreamer",
+								`${name} (${structure.toString()})`
+							);
+							break;
+					}
 					break;
+				}
 
 				case Gst.MessageType.STATE_CHANGED:
 					let [oldS, newS, pendingS] = msg.parseStateChanged();
-					verbose("GStreamer", `${Gst.State[oldS]} -> ${Gst.State[newS]} (${Gst.State[pendingS]})`)
+					verbose(
+						"GStreamer",
+						`${Gst.State[oldS]} -> ${Gst.State[newS]} (${Gst.State[pendingS]})`
+					);
 					break;
 
 				default:
@@ -170,7 +202,7 @@ export class VideoController {
 					break;
 			}
 			return true;
-		})
+		});
 
 		playbin.instant_uri = true;
 		playbin.flags |= GST_PLAY_FLAG_VIDEO | GST_PLAY_FLAG_AUDIO;
@@ -189,39 +221,52 @@ export class VideoController {
 
 	@DebounceSync(1000)
 	getDuration() {
-		const [success,duration] = this.playbin.queryDuration(Gst.Format.TIME);
+		const [success, duration] = this.playbin.queryDuration(Gst.Format.TIME);
 		if (success) {
 			return duration;
 		}
-		throw new Error("failed to get duration")
+		throw new Error("failed to get duration");
 	}
 
 	@DebounceSync(500)
 	getPosition() {
-		const [success,position] = this.playbin.queryPosition(Gst.Format.TIME);
+		const [success, position] = this.playbin.queryPosition(Gst.Format.TIME);
 		if (success) {
 			return position;
 		}
-		throw new Error("failed to get position")
+		throw new Error("failed to get position");
 	}
 
-	@DebounceAsync(200)
-	async seekTo(secs: number) {
-		if (this.buffering) return;
+	desiredPosition = 0;
 
-		let success = this.playbin.seek(1.0, Gst.Format.TIME, Gst.SeekFlags.FLUSH, Gst.SeekType.SET, secs * Gst.SECOND, Gst.SeekType.NONE, Gst.CLOCK_TIME_NONE)
-		this.events.emit("seek", secs)
-		if (!success) {
-			throw new Error("failed to seek");
+	@Throttle(750, function (secs) {
+		this.desiredPosition = secs;
+	})
+	seekTo(secs: number) {
+		if (this.buffering) {
+			verbose("VideoController", `Seek Failed, Buffering (${secs})`);
+			setTimeout(() => this.seekTo(secs), 100);
+		} else {
+			this.desiredPosition = 0;
+
+			let success = this.playbin.seekSimple(
+				Gst.Format.TIME,
+				Gst.SeekFlags.FLUSH |
+					Gst.SeekFlags.ACCURATE |
+					Gst.SeekFlags.TRICKMODE,
+				secs * Gst.SECOND
+			);
+			this.events.emit("seek", secs);
+			verbose("VideoController", `Seek Performed (${secs})`);
+			if (!success) {
+				error("GStreamer", "failed to seek");
+			}
 		}
 	}
 
-	buffering = false;
 	paused = true;
 
 	play() {
-		if (this.buffering) return Gst.StateChangeReturn.FAILURE;
-
 		if (this.paused) {
 			this.paused = false;
 			let res = this.playbin.setState(Gst.State.PLAYING);
@@ -230,10 +275,8 @@ export class VideoController {
 		}
 		return Gst.StateChangeReturn.SUCCESS;
 	}
-	
-	pause() {
-		if (this.buffering) return Gst.StateChangeReturn.FAILURE;
 
+	pause() {
 		if (!this.paused) {
 			this.paused = true;
 			let res = this.playbin.setState(Gst.State.PAUSED);
