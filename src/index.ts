@@ -8,6 +8,25 @@ import Gdk from "gtk:Gdk@3.0";
 import ui from "ui.gtk";
 import { VideoController } from "./elements/video/video";
 import { openDialog } from "./utils/dialog";
+import { processCommandArgs } from "./utils/args";
+import { setLogLevel } from "./utils/log";
+
+const flags = processCommandArgs(process.argv.slice(2))
+
+for (const [flag, value] of Object.entries(flags)) {
+	switch (flag) {
+		case "v":
+		case "vv":
+		case "vvv":
+		case "vvvv":
+			setLogLevel(flag.length);
+			break;
+
+		case "verbose":
+			setLogLevel(value == true ? 4 : value);
+			break;
+	}
+}
 
 if (process.env.XDG_SESSION_TYPE == "x11") {
 	gi.require("GdkX11", "3.0");
