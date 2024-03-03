@@ -1,7 +1,7 @@
 import { ExtractorMap, getMediaFromUrl } from "./providers";
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
-import { verbose } from "../utils/log";
+import { error, verbose } from "../utils/log";
 
 export interface Image {
 	url: string;
@@ -75,6 +75,7 @@ export class Media {
 			author_provider TEXT NOT NULL,
 			author_provider_id TEXT NOT NULL,
 			duration INTEGER,
+			date_added INTEGER NOT NULL,
 			UNIQUE(provider, provider_id)
 		);
 		CREATE TABLE IF NOT EXISTS StreamingFormat (
@@ -95,13 +96,31 @@ export class Media {
 		);
 		`);
 
+		// prune expired formats
+		const expiredFormats = await db.all("SELECT * FROM StreamingFormat WHERE expires_at <= ?;", Date.now())
+		const infoIds = new Set();
+		for (const format of expiredFormats) {
+			infoIds.add(format.media_info_id)
+		}
+		
+		const deleteCacheBy = -1; // -1 -> never
+		const expiredMedia = await db.all("SELECT * FROM MediaInfo WHERE date_added <= ?;", deleteCacheBy)
+		for (const media of expiredMedia) {
+			infoIds.add(media.id)
+		}
+
+		for (const id of infoIds) {
+			await db.run(`DELETE FROM StreamingFormat WHERE media_info_id = ?;`, id)
+			await db.run(`DELETE FROM MediaInfo WHERE id = ?;`, id)
+		}
+
 		Media.database = db;
 	}
 
 	static async #insertIntoDB(media: Media) {
 		const db = Media.database;
 
-		const insertMediaQuery = `INSERT INTO MediaInfo (provider, provider_id, title, description, thumbnail_url, thumbnail_alt, author_name, author_provider, author_provider_id, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+		const insertMediaQuery = `INSERT INTO MediaInfo (provider, provider_id, title, description, thumbnail_url, thumbnail_alt, author_name, author_provider, author_provider_id, duration, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 		const mediaInfoValues = [
 			media.provider,
 			media.provider_id,
@@ -113,6 +132,7 @@ export class Media {
 			media.info.author.provider,
 			media.info.author.provider_id,
 			media.info.duration,
+			Date.now()
 		];
 
 		try {
@@ -137,15 +157,15 @@ export class Media {
 
 				try {
 					await db.run(insertStreamingFormat, streamingFormatValues);
-				} catch (err) {
-					err(
+				} catch (e) {
+					error(
 						"MediaCache",
-						"Failed to insert streaming format. " + err.message
+						"Failed to insert streaming format. " + e.message
 					);
 				}
 			}
-		} catch (err) {
-			err("MediaCache", "Failed to insert media info. " + err.message);
+		} catch (e) {
+			error("MediaCache", "Failed to insert media info. " + e.message);
 		}
 
 		verbose("MediaCache", "Inserted media into database.");

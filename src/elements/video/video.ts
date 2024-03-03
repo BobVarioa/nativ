@@ -116,12 +116,40 @@ export class VideoController {
 	volume = 1;
 
 	createWidget() {
-		const root = new Gtk.Overlay();
+		const root = new Gtk.ScrolledWindow();
+
+		const videoBox = new Gtk.Box()
+		videoBox.hexpand = true;
+		videoBox.vexpand = true;
+		videoBox.orientation = Gtk.Orientation.VERTICAL;
+		root.add(videoBox)
+		
+		const videoRoot = new Gtk.Overlay();
+		videoRoot.hexpand = true;
+		videoRoot.vexpand = true;
+
+		videoRoot.heightRequest = 720;
+		root.connect("size-allocate", (allocation) => {
+			videoRoot.heightRequest = allocation.height;
+		})
+
+		videoBox.packStart(videoRoot, false, false, 0)
+
+		const title = new Gtk.Label();
+		videoBox.packStart(title, false, false, 2)
+
+		const description = new Gtk.TextView();
+		const descBuff = description.getBuffer();
+		this.events.on("media_changed", (media: Media) => {
+			descBuff.setText(media.info.description, -1);
+		})
+		videoBox.packStart(description, false, false, 2)
 
 		const videoContainer = new Gtk.Box();
 		videoContainer.hexpand = true;
 		videoContainer.vexpand = true;
-		root.add(videoContainer);
+		videoRoot.add(videoContainer);
+
 		videoContainer.packStart(this.videoWidget, true, true, 2);
 
 		const controlsContainer = new Gtk.Box();
@@ -155,27 +183,28 @@ export class VideoController {
 		timestamp.label = "0:00/0:00";
 		controls.add(timestamp);
 
-		root.addOverlay(controlsContainer);
+		videoRoot.addOverlay(controlsContainer);
 		this.controls = controlsContainer;
 
 		controlsContainer.on("notify::has-focus", () => {
 			this.controlsActive = 5;
 		});
 
-		const titleContainer = new Gtk.Box();
-		titleContainer.orientation = Gtk.Orientation.HORIZONTAL;
-		titleContainer.hexpand = true;
-		titleContainer.valign = Gtk.Align.START;
-		titleContainer.name = "titleContainer";
+		const playerTitleContainer = new Gtk.Box();
+		playerTitleContainer.orientation = Gtk.Orientation.HORIZONTAL;
+		playerTitleContainer.hexpand = true;
+		playerTitleContainer.valign = Gtk.Align.START;
+		playerTitleContainer.name = "titleContainer";
 
-		const title = new Gtk.Label();
-		title.name = "title"
+		const playerTitle = new Gtk.Label();
+		playerTitle.name = "title"
 		this.events.on("media_changed", (media: Media) => {
+			playerTitle.label = media.info.title;
 			title.label = media.info.title;
 		})
-		titleContainer.add(title)
+		playerTitleContainer.add(playerTitle)
 
-		root.addOverlay(titleContainer)
+		videoRoot.addOverlay(playerTitleContainer)
 
 		this.events.on("pause", () => {
 			playButtonImg.setFromIconName(

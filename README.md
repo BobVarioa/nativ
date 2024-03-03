@@ -14,7 +14,6 @@ Sources:
 - https://docs.gtk.org/gtk3/getting_started.html
 - https://docs.gtk.org/gtk3/css-overview.html
 
-
 TODO: 
 - Widgets:
 	- [ ] Chip (Bar)
@@ -49,7 +48,7 @@ TODO:
 	- [ ] Navigate between pages 
 	- [ ] Restart videos at last played position
 	- [ ] Watch History
-	- [ ] Description
+	- [x] Description
 	- [ ] Comments 
 	- [ ] Recommended videos
 	- [ ] Subscriptions

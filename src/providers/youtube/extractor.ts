@@ -90,9 +90,9 @@ export class YoutubeExtractor extends Extractor {
 			media.addInfo("thumbnail", { url: thumb[0].url });
 		}
 		media.addInfo("author", {
-			name: info.basic_info.author,
+			name: info.basic_info.channel.name,
 			provider: "youtube",
-			provider_id: info.basic_info.author,
+			provider_id: info.basic_info.channel.id,
 		});
 
 		for (const f of info.streaming_data.formats) {
@@ -112,6 +112,8 @@ export class YoutubeExtractor extends Extractor {
 				original: f.is_original,
 			});
 		}
+
+		media.addInfo("duration", info.basic_info.duration)
 
 		return media;
 	}
