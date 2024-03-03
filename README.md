@@ -1,14 +1,5 @@
 # nativ-again
 
-Features I want:
-- Sponsorblock
-- Video streaming 
-- Video download
-	- Auto download?
-- Personalized feed that is only your subscriptions
-	- rss?
--  
-
 Sources:
 - https://wiki.sponsor.ajay.app/w/API_Docs
 - https://github.com/romgrk/node-gtk/blob/master/examples/entry.js
@@ -38,15 +29,17 @@ TODO:
 		- [x] Play
 		- [x] Pause 
 		- [~] Seek
-		- [ ] Volume control
+		- [x] Volume control
 		- [ ] Captions
 		- [ ] Track select 
-		- [ ] Pop out player
-		- [ ] Full screen 
+		- [ ] Pop-out player
+		- [x] Full screen 
 		- [ ] Speed Control
-		- [ ] Extension:
-			- Add other buttons to the seekbar
-- Features
+		- [ ] Segments / Chapters
+		- [ ] Info cards
+		- [ ] End cards
+		- [ ] Video information modal
+- General
 	- [x] Ui language that is not glade
 		- [x] Creates gtk components
 		- [x] Esbuild Plugin
@@ -54,3 +47,18 @@ TODO:
 		- [ ] Templates
 		- [ ] Events / Callbacks 
 	- [ ] Navigate between pages 
+	- [ ] Restart videos at last played position
+	- [ ] Watch History
+	- [ ] Description
+	- [ ] Comments 
+	- [ ] Recommended videos
+	- [ ] Subscriptions
+	- [ ] Search
+	- [ ] Playlists
+	- [ ] Queue
+	- [ ] User Preferences
+- Additional
+	- [ ] Sponsorblock
+	- [ ] Video download
+		- [ ] Auto download subscriptions / Download rules
+	- [ ] 
