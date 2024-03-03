@@ -76,7 +76,7 @@ await esbuild.build({
 	bundle: true,
 	outbase: "src",
 	platform: "node",
-	external: ["node-gtk"],
+	external: ["node-gtk", "sqlite", "sqlite3"],
 	format: "cjs",
 	plugins: [gtkPlugin, uiPlugin],
 });

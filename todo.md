@@ -1,0 +1,12 @@
+- [ ] restart videos at last played position
+- [ ] improve seeking
+- [ ] watch history
+- [ ] description
+- [ ] comments 
+- [ ] recommended videos
+- [ ] subscriptions
+- [ ] search
+- [ ] playlists
+- [ ] queue
+- [ ] info cards
+- [ ] end cards

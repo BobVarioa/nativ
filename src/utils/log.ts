@@ -5,8 +5,8 @@ export function setLogLevel(level: number) {
 	logLevel = level;
 }
 
-export function verbose(tag: string, msg: string) {
-	if (logLevel >= 3) {
+export function verbose(tag: string, msg: string, additional: number = 0) {
+	if (logLevel >= (3 + additional)) {
 		console.log(`${tag}: ${msg}`)
 	}
 }

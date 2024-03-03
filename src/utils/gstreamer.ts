@@ -8,7 +8,10 @@ export interface GlSinkBin extends Gst.Element {
 export interface Playbin extends Gst.Pipeline {
 	instant_uri: boolean;
 	video_sink: Gst.Element;
+	audio_sink: Gst.Element;
 	uri: string;
+	mute: boolean;
+	volume: number;
 }
 export interface GtkSink extends Gst.Element {
 	widget: Gtk.Widget;
