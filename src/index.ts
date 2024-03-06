@@ -6,12 +6,13 @@ import GLib from "gtk:GLib@2.0";
 import Gst from "gtk:Gst@1.0";
 import Gtk from "gtk:Gtk@3.0";
 import Gdk from "gtk:Gdk@3.0";
-import { VideoController } from "./elements/video/video";
+import { VideoController } from "./elements/video/controller";
 import { openDialog } from "./utils/dialog";
 import { processCommandArgs } from "./utils/args";
 import { expandObject, setLogLevel, verbose } from "./utils/log";
 import { Media } from "./providers/media";
 import { clientInfo } from "./providers/clientInfo";
+import { VideoWidget } from "./elements/video/widget";
 
 const flags = processCommandArgs(process.argv.slice(2));
 
@@ -80,22 +81,20 @@ win.on("delete-event", () => {
 });
 win.setDefaultSize(1280, 720);
 
-const videoWidget = videoController.createWidget();
+const videoRenderer = new VideoWidget(videoController);
+videoRenderer.init();
+const videoWidget = videoRenderer.createWidget();
 root.add(videoWidget);
 win.add(root);
 
 win.showAll();
 
 (async () => {
-	await Media.initDB()
-	
-	const media = await Media.fromProvider("youtube", "eNp9-m3iCZg");
-	videoController.setMedia(media);
+	await Media.initDB();
 
-	// videoController.setUri(
-	// 	"http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-	// );
-})()
+	const media = await Media.fromProvider("dummy", "big-buck-bunny");
+	videoController.setMedia(media);
+})();
 
 let fullscreen = false;
 
