@@ -49,7 +49,7 @@ export class Media {
 	provider: string;
 	provider_id: string;
 
-	cachable: boolean;
+	cachable = false;
 
 	readonly formats: StreamingFormat[] = [];
 

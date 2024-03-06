@@ -15,6 +15,7 @@ export class DummyExtractor extends Extractor {
 
 	async getMediaFromId(id: string): Promise<Media> {
 		const media = new Media();
+		media.cachable = true;
 
 		if (id == "big-buck-bunny") {
 			media.addInfo("title", "Big Buck Bunny");
