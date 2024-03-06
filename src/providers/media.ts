@@ -2,6 +2,7 @@ import { ExtractorMap, getMediaFromUrl } from "./providers";
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
 import { error, verbose } from "../utils/log";
+import { DatabaseManager } from "../service/database";
 
 export interface Image {
 	url: string;
@@ -56,175 +57,6 @@ export class Media {
 
 	static database: Database<sqlite3.Database, sqlite3.Statement>;
 
-	static async initDB() {
-		const db = await open({
-			filename: "./.cache/cache.db",
-			driver: sqlite3.cached.Database,
-		});
-
-		await db.exec(`
-		CREATE TABLE IF NOT EXISTS MediaInfo (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			provider TEXT NOT NULL,
-			provider_id TEXT NOT NULL,
-			title TEXT NOT NULL,
-			description TEXT NOT NULL,
-			thumbnail_url TEXT,
-			thumbnail_alt TEXT,
-			author_name TEXT NOT NULL,
-			author_provider TEXT NOT NULL,
-			author_provider_id TEXT NOT NULL,
-			duration INTEGER,
-			date_added INTEGER NOT NULL,
-			UNIQUE(provider, provider_id)
-		);
-		CREATE TABLE IF NOT EXISTS StreamingFormat (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			url TEXT NOT NULL,
-			expires_at INTEGER NOT NULL,
-			has_audio BOOLEAN NOT NULL,
-			has_video BOOLEAN NOT NULL,
-			width INTEGER,
-			height INTEGER,
-			fps INTEGER,
-			bitrate INTEGER,
-			mime_type TEXT,
-			language TEXT,
-			original BOOLEAN,
-			media_info_id INTEGER NOT NULL,
-    		FOREIGN KEY(media_info_id) REFERENCES MediaInfo(id)
-		);
-		`);
-
-		// prune expired formats
-		const expiredFormats = await db.all("SELECT * FROM StreamingFormat WHERE expires_at <= ?;", Date.now())
-		const infoIds = new Set();
-		for (const format of expiredFormats) {
-			infoIds.add(format.media_info_id)
-		}
-		
-		const deleteCacheBy = -1; // -1 -> never
-		const expiredMedia = await db.all("SELECT * FROM MediaInfo WHERE date_added <= ?;", deleteCacheBy)
-		for (const media of expiredMedia) {
-			infoIds.add(media.id)
-		}
-
-		for (const id of infoIds) {
-			await db.run(`DELETE FROM StreamingFormat WHERE media_info_id = ?;`, id)
-			await db.run(`DELETE FROM MediaInfo WHERE id = ?;`, id)
-		}
-
-		Media.database = db;
-	}
-
-	static async #insertIntoDB(media: Media) {
-		const db = Media.database;
-
-		const insertMediaQuery = `INSERT INTO MediaInfo (provider, provider_id, title, description, thumbnail_url, thumbnail_alt, author_name, author_provider, author_provider_id, duration, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-		const mediaInfoValues = [
-			media.provider,
-			media.provider_id,
-			media.info.title,
-			media.info.description,
-			media.info.thumbnail.url,
-			media.info.thumbnail.alt,
-			media.info.author.name,
-			media.info.author.provider,
-			media.info.author.provider_id,
-			media.info.duration,
-			Date.now()
-		];
-
-		try {
-			const res = await db.run(insertMediaQuery, mediaInfoValues);
-
-			for (const format of media.formats) {
-				const insertStreamingFormat = `INSERT INTO StreamingFormat (url, expires_at, has_audio, has_video, width, height, fps, bitrate, mime_type, language, original, media_info_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-				const streamingFormatValues = [
-					format.url,
-					format.expires_at,
-					format.has_audio,
-					format.has_video,
-					format.width,
-					format.height,
-					format.fps,
-					format.bitrate,
-					format.mime_type,
-					format.language,
-					format.original,
-					res.lastID,
-				];
-
-				try {
-					await db.run(insertStreamingFormat, streamingFormatValues);
-				} catch (e) {
-					error(
-						"MediaCache",
-						"Failed to insert streaming format. " + e.message
-					);
-				}
-			}
-		} catch (e) {
-			error("MediaCache", "Failed to insert media info. " + e.message);
-		}
-
-		verbose("MediaCache", "Inserted media into database.");
-	}
-
-	static async #getFromDB(
-		provider: string,
-		provider_id: string
-	): Promise<Media | undefined> {
-		const db = Media.database;
-		const media = new Media();
-
-		const query = `SELECT * FROM MediaInfo WHERE provider = ? AND provider_id = ?`;
-		const row = await db.get(query, [provider, provider_id]);
-		if (row) {
-			// Construct MediaInfo object
-			const mediaInfo: MediaInfo = {
-				title: row.title,
-				description: row.description,
-				thumbnail: {
-					url: row.thumbnail_url,
-					alt: row.thumbnail_alt,
-				},
-				author: {
-					name: row.author_name,
-					provider: row.author_provider,
-					provider_id: row.author_provider_id,
-				},
-				duration: row.duration,
-			};
-
-			media.info = mediaInfo;
-
-			// Fetch associated StreamingFormat(s)
-			const streamingQuery = `SELECT * FROM StreamingFormat WHERE media_info_id = ?`;
-			const streamingRows = await db.all(streamingQuery, [row.id]);
-			for (const streamingRow of streamingRows) {
-				const format: StreamingFormat = {
-					url: streamingRow.url,
-					expires_at: streamingRow.expires_at,
-					has_audio: streamingRow.has_audio,
-					has_video: streamingRow.has_video,
-					width: streamingRow.width,
-					height: streamingRow.height,
-					fps: streamingRow.fps,
-					bitrate: streamingRow.bitrate,
-					mime_type: streamingRow.mime_type,
-					language: streamingRow.language,
-					original: streamingRow.original,
-				};
-
-				media.addFormat(format);
-			}
-
-			return media;
-		}
-
-		return undefined;
-	}
 
 	static async fromProvider(
 		provider: keyof typeof ExtractorMap,
@@ -232,13 +64,13 @@ export class Media {
 		fromCache: boolean = true
 	): Promise<Media> {
 		if (fromCache) {
-			verbose("MediaCache", "Attempting to get media from database.");
-			const m = await Media.#getFromDB(provider, provider_id);
+			verbose("MediaCache", "Looking for cached media.");
+			const m = await DatabaseManager.getMedia(provider, provider_id);
 			if (m) {
-				verbose("MediaCache", "Success!");
+				verbose("MediaCache", "Found cached media.");
 				return m;
 			}
-			verbose("MediaCache", "Failed to get media from database.");
+			verbose("MediaCache", "No cached media.");
 		}
 
 		const media = await ExtractorMap[provider].getMediaFromId(provider_id);
@@ -246,8 +78,14 @@ export class Media {
 		media.provider_id = provider_id;
 
 		if (media.cachable) {
-			verbose("MediaCache", "Attempting to insert media into database.");
-			Media.#insertIntoDB(media);
+			verbose("MediaCache", "Attempting to cache media.");
+			if (DatabaseManager.insertMedia(media)) {
+				error("MediaCache", "Failed to cache media.");
+			} else {
+				verbose("MediaCache", "Cached media.");
+			}
+
+	
 		}
 		return media;
 	}

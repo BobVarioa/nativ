@@ -13,6 +13,8 @@ import { expandObject, setLogLevel, verbose } from "./utils/log";
 import { Media } from "./providers/media";
 import { clientInfo } from "./providers/clientInfo";
 import { VideoWidget } from "./elements/video/widget";
+import { Database } from "sqlite";
+import { DatabaseManager } from "./service/database";
 
 const flags = processCommandArgs(process.argv.slice(2));
 
@@ -90,7 +92,7 @@ win.add(root);
 win.showAll();
 
 (async () => {
-	await Media.initDB();
+	await DatabaseManager.initialize();
 
 	const media = await Media.fromProvider("dummy", "big-buck-bunny");
 	videoController.setMedia(media);
