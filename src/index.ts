@@ -1,4 +1,3 @@
-/// <reference path="../typings/index.d.ts" />
 import process from "node:process";
 import path from "node:path";
 import gi from "node-gtk";
@@ -13,23 +12,26 @@ import { expandObject, setLogLevel, verbose } from "./utils/log";
 import { Media } from "./providers/media";
 import { clientInfo } from "./providers/clientInfo";
 import { VideoWidget } from "./elements/video/widget";
-import { Database } from "sqlite";
-import { DatabaseManager } from "./service/database";
+import { DatabaseManager } from "./service/database/service";
 
 const flags = processCommandArgs(process.argv.slice(2));
 
 for (const [flag, value] of Object.entries(flags)) {
 	switch (flag) {
 		case "v":
-		case "vv":
-		case "vvv":
-		case "vvvv":
-		case "vvvvv":
-			setLogLevel(flag.length);
+			if (new Set(flag).size == 1) {
+				setLogLevel(flag.length);
+			}
 			break;
 
 		case "verbose":
 			setLogLevel(value == true ? 4 : value);
+			break;
+
+		case "q":
+		case "quiet":
+		case "silent":
+			setLogLevel(0);
 			break;
 	}
 }
@@ -93,7 +95,6 @@ win.showAll();
 
 (async () => {
 	await DatabaseManager.initialize();
-
 	const media = await Media.fromProvider("dummy", "big-buck-bunny");
 	videoController.setMedia(media);
 })();

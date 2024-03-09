@@ -1,35 +1,42 @@
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
-import { Author, Media, MediaInfo, StreamingFormat } from "../providers/media";
-import { error, verbose } from "../utils/log";
+import {
+	Author,
+	Media,
+	MediaInfo,
+	StreamingFormat,
+} from "../../providers/media";
+import { error, verbose } from "../../utils/log";
+import {
+	Database as DatabaseService,
+	SubscriptionElement,
+	WatchHistoryElement,
+} from "./service";
 
-interface WatchHistoryElement {
-	media: Media;
-	date: number;
-	location: number;
+async function upgradeDB(
+	db: Database<sqlite3.Database, sqlite3.Statement>,
+	from: string,
+	to: string
+): Promise<boolean> {
+
+	return true;
 }
 
-interface SubscriptionElement {
-	author: Author;
-	date_added: number;
-}
+export class DiskDatabase implements DatabaseService {
+	version = "0.0.0";
+	db: Database<sqlite3.Database, sqlite3.Statement>;
 
-export class DatabaseManager {
-	static db: Database<sqlite3.Database, sqlite3.Statement>;
-
-	static async initialize() {
-		const db = await open({
-			filename: "./.cache/nativ.db",
-			driver: sqlite3.cached.Database,
-		});
-
+	async #fromNull() {
 		// NOTE: UserData playlist/watch history implementation notes
 		// We don't store the formats like we do in the media cache because this is not meant for rapid playback
 		// Though, the media here might be in the media cache for any number of reasons,
 		// i.e. the data is duplicated here on purpose
-
-		await db.exec(`
-		CREATE TABLE IF NOT EXISTS Subscriptions (
+		await this.db.exec(`
+		CREATE TABLE DatabaseInfo (
+			version NOT NULL DEFAULT "${this.version}"
+		);
+		INSERT INTO DatabaseInfo DEFAULT VALUES;
+		CREATE TABLE Subscriptions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
 			provider TEXT NOT NULL,
@@ -37,14 +44,14 @@ export class DatabaseManager {
 			date_added INTEGER NOT NULL,
 			UNIQUE(provider, provider_id)
 		);
-		CREATE TABLE IF NOT EXISTS Playlist (
+		CREATE TABLE Playlist (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
 			description TEXT,
 			date_added INTEGER NOT NULL,
 			elements INTEGER NOT NULL
 		);
-		CREATE TABLE IF NOT EXISTS PlaylistMedia (
+		CREATE TABLE PlaylistMedia (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			playlist_id INTEGER NOT NULL,
 			media_info INTEGER NOT NULL,
@@ -52,14 +59,14 @@ export class DatabaseManager {
 			FOREIGN KEY(playlist_id) REFERENCES Playlist(id),
 			FOREIGN KEY(media_info) REFERENCES MediaInfo(id)
 		);
-		CREATE TABLE IF NOT EXISTS WatchHistory (
+		CREATE TABLE WatchHistory (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			media_info INTEGER NOT NULL,
 			date INTEGER NOT NULL,
 			location INTEGER NOT NULL,
 			FOREIGN KEY(media_info) REFERENCES MediaInfo(id)
 		);
-		CREATE TABLE IF NOT EXISTS MediaInfo (
+		CREATE TABLE MediaInfo (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			provider TEXT NOT NULL,
 			provider_id TEXT NOT NULL,
@@ -74,7 +81,7 @@ export class DatabaseManager {
 			date_added INTEGER NOT NULL,
 			UNIQUE(provider, provider_id)
 		);
-		CREATE TABLE IF NOT EXISTS StreamingFormat (
+		CREATE TABLE StreamingFormat (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			url TEXT NOT NULL,
 			expires_at INTEGER NOT NULL,
@@ -92,10 +99,31 @@ export class DatabaseManager {
 		);
 		`);
 
-		DatabaseManager.db = db;
+		return true;
 	}
 
-	static async insertMedia(media: Media): Promise<number> {
+	async initialize(): Promise<boolean> {
+		const db = await open({
+			filename: "./.cache/nativ.db",
+			driver: sqlite3.cached.Database,
+		});
+		this.db = db;
+
+		let dbConfig: { version: string };
+		try {
+			dbConfig = await db.get("SELECT * FROM DatabaseInfo;");
+		} catch (e) {}
+
+		if (!dbConfig) {
+			return await this.#fromNull();
+		}
+
+		if (dbConfig.version != this.version) {
+			return await upgradeDB(db, dbConfig.version, this.version);
+		}
+	}
+
+	async insertMedia(media: Media): Promise<number> {
 		const query = `
 		INSERT INTO MediaInfo 
 			(provider, provider_id, title, description, thumbnail_url, thumbnail_alt, author_name, author_provider, author_provider_id, duration, date_added) 
@@ -129,7 +157,7 @@ export class DatabaseManager {
 			const res = await this.db.run(query, values);
 
 			for (const format of media.formats) {
-				DatabaseManager.insertStreamingFormat(format, res.lastID);
+				this.insertStreamingFormat(format, res.lastID);
 			}
 
 			return res.lastID;
@@ -142,7 +170,7 @@ export class DatabaseManager {
 		}
 	}
 
-	static async insertStreamingFormat(
+	async insertStreamingFormat(
 		format: StreamingFormat,
 		media_id: number
 	): Promise<number> {
@@ -175,7 +203,7 @@ export class DatabaseManager {
 		}
 	}
 
-	static async getStreamingFormats(
+	async getStreamingFormats(
 		media_info_id: number
 	): Promise<StreamingFormat[]> {
 		const arr = [];
@@ -203,7 +231,7 @@ export class DatabaseManager {
 		return arr;
 	}
 
-	static #parseMediaRow(row: any): Media {
+	#parseMediaRow(row: any): Media {
 		const media = new Media();
 
 		const mediaInfo: MediaInfo = {
@@ -226,17 +254,17 @@ export class DatabaseManager {
 		return media;
 	}
 
-	static async getMedia(
+	async getMedia(
 		provider: string,
 		provider_id: string
 	): Promise<Media | undefined> {
 		const query = `SELECT * FROM MediaInfo WHERE provider = ? AND provider_id = ?;`;
 		const row = await this.db.get(query, [provider, provider_id]);
 		if (row) {
-			const media = DatabaseManager.#parseMediaRow(row);
+			const media = this.#parseMediaRow(row);
 
 			// Fetch associated StreamingFormat(s)
-			const formats = await DatabaseManager.getStreamingFormats(row.id);
+			const formats = await this.getStreamingFormats(row.id);
 			for (const format of formats) {
 				media.addFormat(format);
 			}
@@ -247,14 +275,17 @@ export class DatabaseManager {
 		return undefined;
 	}
 
-	static async pruneExpiredData() {
+	async pruneExpiredData() {
 		// prune expired formats
-		const expiredFormats = await this.db.all("SELECT * FROM StreamingFormat WHERE expires_at <= ?;", Date.now())
+		const expiredFormats = await this.db.all(
+			"SELECT * FROM StreamingFormat WHERE expires_at <= ?;",
+			Date.now()
+		);
 		const infoIds = new Set();
 		for (const format of expiredFormats) {
-			infoIds.add(format.media_info_id)
+			infoIds.add(format.media_info_id);
 		}
-		
+
 		// const deleteCacheBy = -1; // -1 -> never
 		// const expiredMedia = await this.db.all("SELECT * FROM MediaInfo WHERE date_added <= ?;", deleteCacheBy)
 		// for (const media of expiredMedias) {
@@ -262,19 +293,20 @@ export class DatabaseManager {
 		// }
 
 		for (const id of infoIds) {
-			await this.db.run(`DELETE FROM StreamingFormat WHERE media_info_id = ?;`, id)
+			await this.db.run(
+				`DELETE FROM StreamingFormat WHERE media_info_id = ?;`,
+				id
+			);
 			// await db.run(`DELETE FROM MediaInfo WHERE id = ?;`, id)
 		}
+
+		return true;
 	}
 
-	static async insertWatchHistory(
-		media: Media,
-		date: number,
-		location: number
-	) {
+	async insertWatchHistory(media: Media, date: number, location: number) {
 		const query =
 			"INSERT INTO WatchHistory (media_info_id, date, location) VALUES (?, ?, ?);";
-		const media_info_id = await DatabaseManager.insertMedia(media);
+		const media_info_id = await this.insertMedia(media);
 		const values = [media_info_id, date, location];
 
 		try {
@@ -295,7 +327,10 @@ export class DatabaseManager {
 	 * @param from the start date
 	 * @param to the end date, by default: `Date.now()`
 	 */
-	static async getWatchHistory(from: number, to?: number): Promise<WatchHistoryElement[]> {		
+	async getWatchHistory(
+		from: number,
+		to?: number
+	): Promise<WatchHistoryElement[]> {
 		const query = `SELECT WatchHistory.*, MediaInfo.*
 			FROM WatchHistory
 			INNER JOIN MediaInfo ON WatchHistory.media_info = MediaInfo.id
@@ -304,15 +339,15 @@ export class DatabaseManager {
 
 		try {
 			const res = await this.db.all(query, values);
-			const arr: WatchHistoryElement[] = []
+			const arr: WatchHistoryElement[] = [];
 
 			for (const row of res) {
-				const media = DatabaseManager.#parseMediaRow(row);
+				const media = this.#parseMediaRow(row);
 				arr.push({
 					date: row.date,
 					location: row.location,
-					media
-				})
+					media,
+				});
 			}
 
 			return arr;
@@ -325,26 +360,30 @@ export class DatabaseManager {
 		}
 	}
 
-	static async addSubscription(author: Author): Promise<number> {
-		const query = "INSERT INTO Subscriptions (name, provider, provider_id, date_added) VALUES (?, ?, ?, ?);"
-		const values = [author.name, author.provider, author.provider_id, Date.now()];
-		
+	async addSubscription(author: Author): Promise<number> {
+		const query =
+			"INSERT INTO Subscriptions (name, provider, provider_id, date_added) VALUES (?, ?, ?, ?);";
+		const values = [
+			author.name,
+			author.provider,
+			author.provider_id,
+			Date.now(),
+		];
+
 		try {
 			const res = await this.db.run(query, values);
 
 			return res.lastID;
 		} catch (e) {
-			error(
-				"DatabaseManager",
-				"Failed to add subscription." + e.message
-			);
+			error("DatabaseManager", "Failed to add subscription." + e.message);
 			return -1;
 		}
 	}
 
-	static async deleteSubscription(provider: string, provider_id: string) {
-		const query = "DELETE FROM Subscriptions WHERE provider = ? AND provider_id = ?;"
-		const values = [provider, provider_id]
+	async deleteSubscription(provider: string, provider_id: string) {
+		const query =
+			"DELETE FROM Subscriptions WHERE provider = ? AND provider_id = ?;";
+		const values = [provider, provider_id];
 
 		try {
 			await this.db.run(query, values);
@@ -359,8 +398,8 @@ export class DatabaseManager {
 		}
 	}
 
-	static async getSubscriptions(): Promise<SubscriptionElement[]> {
-		const query = "SELECT * FROM Subscriptions;"
+	async getSubscriptions(): Promise<SubscriptionElement[]> {
+		const query = "SELECT * FROM Subscriptions;";
 
 		try {
 			const res = await this.db.all(query);
@@ -371,10 +410,10 @@ export class DatabaseManager {
 					author: {
 						name: row.name,
 						provider: row.provider,
-						provider_id: row.provider_id
+						provider_id: row.provider_id,
 					},
-					date_added: row.date_added
-				})
+					date_added: row.date_added,
+				});
 			}
 
 			return arr;
@@ -385,6 +424,5 @@ export class DatabaseManager {
 			);
 			return undefined;
 		}
-
 	}
 }

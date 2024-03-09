@@ -2,7 +2,7 @@ import { ExtractorMap, getMediaFromUrl } from "./providers";
 import sqlite3 from "sqlite3";
 import { Database, open } from "sqlite";
 import { error, verbose } from "../utils/log";
-import { DatabaseManager } from "../service/database";
+import { DatabaseManager } from "../service/database/service";
 
 export interface Image {
 	url: string;
