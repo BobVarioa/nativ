@@ -8,7 +8,7 @@ import Gdk from "gtk:Gdk@3.0";
 import { VideoController } from "./elements/video/controller";
 import { openDialog } from "./utils/dialog";
 import { processCommandArgs } from "./utils/args";
-import { expandObject, setLogLevel, verbose } from "./utils/log";
+import { addExclude, expandObject, info, setLogLevel, verbose } from "./utils/log";
 import { Media } from "./providers/media";
 import { clientInfo } from "./providers/clientInfo";
 import { VideoWidget } from "./elements/video/widget";
@@ -18,20 +18,38 @@ const flags = processCommandArgs(process.argv.slice(2));
 
 for (const [flag, value] of Object.entries(flags)) {
 	switch (flag) {
-		case "v":
-			if (new Set(flag).size == 1) {
-				setLogLevel(flag.length);
-			}
-			break;
-
 		case "verbose":
-			setLogLevel(value == true ? 4 : value);
+			if (value == true) {
+				setLogLevel(4);
+			} else {
+				console.log("`--verbose` does not take a parameter")
+				process.exit();
+			}
 			break;
 
 		case "q":
 		case "quiet":
 		case "silent":
-			setLogLevel(0);
+			if (value != true) {
+				console.log(`\`--${flag}\` does not take a parameter`)
+				process.exit();
+			}
+			setLogLevel(-1);
+			break;
+
+		case "log-exclude":
+			if (typeof value != "string") {
+				console.log("`--log-exclude` takes a string parameter")
+				process.exit();
+			}
+			value.split(",").map(v => addExclude(v));
+			break;
+
+		default:
+			if (flag[0] == "v" && new Set(flag).size == 1) {
+				console.log(flag.length)
+				setLogLevel(flag.length);
+			}
 			break;
 	}
 }
@@ -57,8 +75,9 @@ css.loadFromPath(path.join(__dirname, "../static/style.css"));
 Gtk.StyleContext.addProviderForScreen(screen, css, 1);
 
 const gstVersion = Gst.version();
-console.log(
-	`GStreamer Version: ${gstVersion[0]}.${gstVersion[1]}.${gstVersion[2]}`
+info(
+	"GStreamer",
+	`Version: ${gstVersion[0]}.${gstVersion[1]}.${gstVersion[2]}`
 );
 
 const videoController = new VideoController();
@@ -102,7 +121,7 @@ win.showAll();
 let fullscreen = false;
 
 win.connect("key-press-event", (event) => {
-	verbose("keypress", `str: ${event.string}, code: ${event.keyval}`);
+	verbose("Keypress", `str: ${event.string}, code: ${event.keyval}`);
 	switch (event.string) {
 		case "f":
 			if (fullscreen) {

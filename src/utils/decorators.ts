@@ -48,29 +48,23 @@ export function Throttle(minDelay: number, onFail = (...stuff) => {}) {
 		propertyKey: string,
 		descriptor: PropertyDescriptor
 	) {
-		// verbose("Throttle", "Added")
 		let method = descriptor.value as (...args: any[]) => void;
 		let lastCall = 0;
 		let lastArgs = undefined;
 		descriptor.value = function newMethod(...args) {
-			// verbose("Throttle", `Requested ${args}`)
 			const diff = performance.now() - lastCall;
 			if (lastCall != 0 && diff < minDelay) {
 				if (lastArgs == undefined) {
-					// verbose("Throttle", `Too soon, retrying in ${minDelay - diff}ms`)
 					setTimeout(() => {
-						// verbose("Throttle", "Retrying")
 						newMethod.apply(this, lastArgs);
 					}, Math.ceil(minDelay - diff));
 				}
 				lastArgs = args;
 				onFail.apply(this, args);
-				// verbose("Throttle", "Args changed")
 			} else {
 				lastCall = performance.now();
 				lastArgs = undefined;
 				method.apply(this, args);
-				// verbose("Throttle", "Success")
 			}
 		};
 	};

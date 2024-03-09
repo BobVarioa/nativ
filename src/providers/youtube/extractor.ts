@@ -42,8 +42,6 @@ export class YoutubeExtractor extends Extractor {
 		
 		const msg = new Gtk.MessageDialog({ modal: true, buttons: Gtk.ButtonsType.NONE });
 		yt.session.on("auth-pending", (data) => {
-			verbose("yt-auth", "here")
-
 			GLib.timeoutAdd(GLib.PRIORITY_DEFAULT, 1, () => {
 				msg.text = `Open this link (${data.verification_url}) in your browser, and enter the code ${data.user_code} to authenticate`;
 

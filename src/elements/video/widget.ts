@@ -4,6 +4,7 @@ import Gtk from "gtk:Gtk@3.0";
 import { GlSinkBin, GtkSink } from "../../utils/gstreamer";
 import Gst from "gtk:Gst@1.0";
 import { Media } from "../../providers/media";
+import { info, verbose } from "../../utils/log";
 
 function formatTimestamp(ms: number) {
 	let timestamp = "";
@@ -114,13 +115,13 @@ export class VideoWidget {
 			"glsinkbin"
 		) as GlSinkBin;
 		if (gtkglsink != null && glsink != null) {
-			console.log("glsink");
+			verbose("GStreamer", "Using glsink");
 			glsink.sink = gtkglsink;
 
 			vsink = glsink;
 			widget = gtkglsink.widget;
 		} else {
-			console.log("gtksink");
+			verbose("GStreamer", "Using gtksink");
 			let gtksink = Gst.ElementFactory.make(
 				"gtksink",
 				"gtksink"
